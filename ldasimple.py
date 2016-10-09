@@ -101,23 +101,43 @@ class LdaSimple(LdaModel):
         likelihood = self.eval_likelihood(Elogtheta, Elogbeta)
         logger.info('Likelihood: %.3e', likelihood)
         for iteration in xrange(self.iterations):
-            st()
             # Update phi.
             for d, doc in enumerate(corpus):
                 ids = numpy.array([id for id, _ in doc])  # Word IDs in doc.
                 cts = numpy.array([cnt for _, cnt in doc])  # Word counts.
+                #expElogthetad = numpy.exp(Elogtheta[d, :])
+                #expElogbetad = expElogbeta[:, ids]
+                #var_phi[d, ids, :] = expElogthetad * expElogbetad.T
+                #phinorm = numpy.dot(expElogthetad, expElogbetad) + 1e-100
+                #for vi, v in enumerate(ids):
+                #    var_phi[d, v, :] *= 1.0 / phinorm[vi]
+                # var_phi[d, ids, :] = expElogthetad * numpy.dot(1.0 / phinorm, expElogbetad.T)
+                #for v in ids:
+                #    # Normalize phi.
+                #    (log_var_phi_dv, _) = log_normalize(var_phi[d, v, :])
+                #    var_phi[d, v, :] = numpy.exp(log_var_phi_dv)
                 for v in ids:
+                    var_phi_sum_k = 0.0
                     for k in xrange(self.num_topics):
                         var_phi[d, v, k] = expElogtheta[d, k] * expElogbeta[k, v]
+                        var_phi_sum_k += var_phi[d, v, k]
                         # var_phi[d, v, k] = numpy.exp(Elogtheta[d, k] + Elogbeta[k, v])
                     # Normalize phi.
-                    (log_var_phi_dv, _) = log_normalize(var_phi[d, v, :])
-                    var_phi[d, v, :] = numpy.exp(log_var_phi_dv)
+                    #(log_var_phi_dv, _) = log_normalize(var_phi[d, v, :])
+                    #var_phi[d, v, :] = numpy.exp(log_var_phi_dv)
+                    for k in xrange(self.num_topics):
+                        var_phi[d, v, k] *= 1.0 / var_phi_sum_k
 
             # Update gamma.
             for d, doc in enumerate(corpus):
                 ids = numpy.array([id for id, _ in doc])  # Word IDs in doc.
                 cts = numpy.array([cnt for _, cnt in doc])  # Word counts.
+                #expElogthetad = numpy.exp(Elogtheta[d, :])
+                #expElogbetad = expElogbeta[:, ids]
+                #phinorm = numpy.dot(expElogthetad, expElogbetad) + 1e-100
+                #var_gamma[d, :] = self.alpha + expElogthetad * numpy.dot(cts / phinorm, expElogbetad.T)
+                #var_gamma[d, :] = self.alpha + numpy.dot(cts,  var_phi[d, ids, :])
+
                 for k in xrange(self.num_topics):
                     var_gamma[d, k] = 0.0
                     var_gamma[d, k] += self.alpha
