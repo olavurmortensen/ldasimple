@@ -113,7 +113,9 @@ class OnlineLda(LdaModel):
         theta_bound = self.theta_bound(Elogtheta)
         beta_bound = self.beta_bound(Elogbeta)
         bound = word_bound + theta_bound + beta_bound
-        logger.info('Total bound: %.3e. Word bound: %.3e. theta bound: %.3e. beta bound: %.3e.', bound, word_bound, theta_bound, beta_bound)
+        corpus_words = sum(cnt for document in corpus for _, cnt in document)
+        perwordbound = bound / corpus_words
+        logger.info('Per-word-bound: %.3e. Total bound: %.3e. Word bound: %.3e. theta bound: %.3e. beta bound: %.3e.', perwordbound, bound, word_bound, theta_bound, beta_bound)
         for _pass in xrange(self.passes):
             converged = 0
             for d, doc in enumerate(corpus):
@@ -172,14 +174,23 @@ class OnlineLda(LdaModel):
                 # Print topics:
                 # pprint(self.show_topics())
 
-                if d % self.eval_every == 0:
+                if self.eval_every and d % self.eval_every == 0:
                     word_bound = self.word_bound(Elogtheta, Elogbeta)
                     theta_bound = self.theta_bound(Elogtheta)
                     beta_bound = self.beta_bound(Elogbeta)
                     bound = word_bound + theta_bound + beta_bound
-                    logger.info('Total bound: %.3e. Word bound: %.3e. theta bound: %.3e. beta bound: %.3e.', bound, word_bound, theta_bound, beta_bound)
+                    perwordbound = bound / corpus_words
+                    logger.info('Per-word-bound: %.3e. Total bound: %.3e. Word bound: %.3e. theta bound: %.3e. beta bound: %.3e.', perwordbound, bound, word_bound, theta_bound, beta_bound)
 
             logger.info('Converged documents: %d/%d.', converged, self.num_docs)
+
+        if not self.eval_every:
+            word_bound = self.word_bound(Elogtheta, Elogbeta)
+            theta_bound = self.theta_bound(Elogtheta)
+            beta_bound = self.beta_bound(Elogbeta)
+            bound = word_bound + theta_bound + beta_bound
+            perwordbound = bound / corpus_words
+            logger.info('Per-word-bound: %.3e. Total bound: %.3e. Word bound: %.3e. theta bound: %.3e. beta bound: %.3e.', perwordbound, bound, word_bound, theta_bound, beta_bound)
 
         return var_gamma, var_lambda
 
