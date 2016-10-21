@@ -19,6 +19,7 @@ from gensim import utils, matutils
 from gensim.models.ldamodel import dirichlet_expectation, get_random_state
 from gensim.models import LdaModel
 from gensim.models.hdpmodel import log_normalize  # For efficient normalization of variational parameters.
+from scipy.special import gammaln
 from six.moves import xrange
 
 from pprint import pprint
@@ -34,7 +35,7 @@ except ImportError:
 logger = logging.getLogger('gensim.models.atmodel')
 
 
-class LdaSimple(LdaModel):
+class BatchLda(LdaModel):
     """
     """
 
@@ -62,7 +63,7 @@ class LdaSimple(LdaModel):
 
         if self.num_terms == 0:
             raise ValueError("cannot compute LDA over an empty collection (no terms)")
-        
+
         logger.info('Vocabulary consists of %d words.', self.num_terms)
 
         self.corpus = corpus
@@ -92,14 +93,21 @@ class LdaSimple(LdaModel):
         var_lambda = self.random_state.gamma(100., 1. / 100.,
                 (self.num_topics, self.num_terms))
 
+        self.var_lambda = var_lambda
+        self.var_gamma = var_gamma
+
         var_phi = numpy.zeros((self.num_docs, self.num_terms, self.num_topics))
 
         Elogtheta = dirichlet_expectation(var_gamma)
         Elogbeta = dirichlet_expectation(var_lambda)
         expElogbeta = numpy.exp(Elogbeta)
         expElogtheta = numpy.exp(Elogtheta)
-        likelihood = self.eval_likelihood(Elogtheta, Elogbeta)
-        logger.info('Likelihood: %.3e', likelihood)
+
+        word_bound = self.word_bound(Elogtheta, Elogbeta)
+        theta_bound = self.theta_bound(Elogtheta)
+        beta_bound = self.beta_bound(Elogbeta)
+        bound = word_bound + theta_bound + beta_bound
+        logger.info('Total bound: %.3e. Word bound: %.3e. theta bound: %.3e. beta bound: %.3e.', bound, word_bound, theta_bound, beta_bound)
         for iteration in xrange(self.iterations):
             # Update phi.
             for d, doc in enumerate(corpus):
@@ -135,29 +143,31 @@ class LdaSimple(LdaModel):
                         cnt = dict(doc).get(v, 0)
                         var_lambda[k, v] += cnt * var_phi[d, v, k]
 
-            logger.info('All variables updated.')
-
             Elogtheta = dirichlet_expectation(var_gamma)
             Elogbeta = dirichlet_expectation(var_lambda)
             expElogbeta = numpy.exp(Elogbeta)
             expElogtheta = numpy.exp(Elogtheta)
 
             # Print topics:
-            self.var_lambda = var_lambda
             # pprint(self.show_topics())
 
-            # Evaluate likelihood.
+            self.var_lambda = var_lambda
+            self.var_gamma = var_gamma
+
             if (iteration + 1) % self.eval_every == 0:
-                prev_likelihood = likelihood
-                likelihood = self.eval_likelihood(Elogtheta, Elogbeta)
-                logger.info('Likelihood: %.3e', likelihood)
+                word_bound = self.word_bound(Elogtheta, Elogbeta)
+                theta_bound = self.theta_bound(Elogtheta)
+                beta_bound = self.beta_bound(Elogbeta)
+                bound = word_bound + theta_bound + beta_bound
+                logger.info('Total bound: %.3e. Word bound: %.3e. theta bound: %.3e. beta bound: %.3e.', bound, word_bound, theta_bound, beta_bound)
+
                 #if numpy.abs(likelihood - prev_likelihood) / abs(prev_likelihood) < self.threshold:
                 #break
         # End of update loop (iterations).
 
         return var_gamma, var_lambda
 
-    def eval_likelihood(self, Elogtheta, Elogbeta, doc_ids=None):
+    def word_bound(self, Elogtheta, Elogbeta, doc_ids=None):
         """
         Note that this is not strictly speaking a likelihood.
 
@@ -173,17 +183,46 @@ class LdaSimple(LdaModel):
         else:
             docs = [self.corpus[d] for d in doc_ids]
 
-        likelihood = 0.0
+        bound = 0.0
         for d, doc in enumerate(docs):
             ids = numpy.array([id for id, _ in doc])  # Word IDs in doc.
             cts = numpy.array([cnt for _, cnt in doc])  # Word counts.
-            likelihood_d = 0.0
+            bound_d = 0.0
             for vi, v in enumerate(ids):
-                for k in xrange(self.num_topics):
-                    likelihood_d += numpy.log(cts[vi]) + Elogtheta[d, k] + Elogbeta[k, v]
-            likelihood += likelihood_d
+                bound_d += cts[vi] * logsumexp(Elogtheta[d, :] + Elogbeta[:, v])
+            bound += bound_d
 
-        return likelihood
+            # Above is the same as:
+            #Elogthetad = Elogtheta[d, :]
+            #likelihood += numpy.sum(cnt * logsumexp(Elogthetad + Elogbeta[:, id]) for id, cnt in doc)
+
+        return bound
+
+    def theta_bound(self, Elogtheta, doc_ids=None):
+
+        if doc_ids is None:
+            docs = self.corpus
+        else:
+            docs = [self.corpus[d] for d in doc_ids]
+
+        bound = 0.0
+        for d in xrange(len(docs)):
+            var_gamma_d = self.var_gamma[d, :]
+            Elogtheta_d = Elogtheta[d, :]
+            # E[log p(theta | alpha) - log q(theta | gamma)]; assumes alpha is a vector
+            bound += numpy.sum((self.alpha - var_gamma_d) * Elogtheta_d)
+            bound += numpy.sum(gammaln(var_gamma_d) - gammaln(self.alpha))
+            bound += gammaln(numpy.sum(self.alpha)) - gammaln(numpy.sum(var_gamma_d))
+
+        return bound
+
+    def beta_bound(self, Elogbeta):
+        bound = 0.0
+        bound += numpy.sum((self.eta - self.var_lambda) * Elogbeta)
+        bound += numpy.sum(gammaln(self.var_lambda) - gammaln(self.eta))
+        bound += numpy.sum(gammaln(numpy.sum(self.eta)) - gammaln(numpy.sum(self.var_lambda, 1)))
+
+        return bound
 
     # Overriding LdaModel.get_topic_terms.
     def get_topic_terms(self, topicid, topn=10):
