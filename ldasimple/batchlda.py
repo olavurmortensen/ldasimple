@@ -15,7 +15,6 @@ import numbers
 from gensim import utils, matutils
 from gensim.models.ldamodel import dirichlet_expectation, get_random_state
 from gensim.models import LdaModel
-from gensim.models.hdpmodel import log_normalize  # For efficient normalization of variational parameters.
 from scipy.special import gammaln
 from six.moves import xrange
 
@@ -113,14 +112,11 @@ class BatchLda(LdaModel):
                 ids = numpy.array([id for id, _ in doc])  # Word IDs in doc.
                 cts = numpy.array([cnt for _, cnt in doc])  # Word counts.
                 for v in ids:
-                    var_phi_sum_k = 0.0
                     for k in xrange(self.num_topics):
                         var_phi[d, v, k] = expElogtheta[d, k] * expElogbeta[k, v]
-                        var_phi_sum_k += var_phi[d, v, k]
                         # var_phi[d, v, k] = numpy.exp(Elogtheta[d, k] + Elogbeta[k, v])
                     # Normalize phi.
-                    (log_var_phi_dv, _) = log_normalize(numpy.log(var_phi[d, v, :]))
-                    var_phi[d, v, :] = numpy.exp(log_var_phi_dv)
+                    var_phi[d, v, :] = var_phi[d, v, :] / (var_phi[d, v, :].sum() + 1e-100)
 
             # Update gamma.
             for d, doc in enumerate(corpus):

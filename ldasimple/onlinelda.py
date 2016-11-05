@@ -15,7 +15,6 @@ import numbers
 from gensim import utils, matutils
 from gensim.models.ldamodel import dirichlet_expectation, get_random_state
 from gensim.models import LdaModel
-from gensim.models.hdpmodel import log_normalize  # For efficient normalization of variational parameters.
 from scipy.special import gammaln
 from six.moves import xrange
 
